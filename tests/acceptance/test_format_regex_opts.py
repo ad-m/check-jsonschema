@@ -1,7 +1,6 @@
 # test on a JavaScript regex which is not a valid python regex
-# `--format-regex=disabled` should skip
-# `--format-regex=default` should accept it
-# `--format-regex=python` should reject it
+# `--regex-variant=default` should accept it
+# `--regex-variant=python` should reject it
 #
 # check these options against documents with invalid and valid python regexes to confirm
 # that they are behaving as expected
@@ -26,7 +25,7 @@ JS_REGEX_DOCUMENT = {
     "pattern": "a(?<captured>)bc",
 }
 
-# taken from https://github.com/sirosen/check-jsonschema/issues/25
+# taken from https://github.com/python-jsonschema/check-jsonschema/issues/25
 RENOVATE_DOCUMENT = {
     "regexManagers": [
         {
@@ -39,55 +38,103 @@ RENOVATE_DOCUMENT = {
 }
 
 
-@pytest.mark.parametrize("regexopt", ["disabled", "default", "python"])
-def test_regex_format_good(cli_runner, tmp_path, regexopt):
+@pytest.fixture(
+    params=[
+        ("--disable-formats", "regex"),
+        ("--format-regex", "default"),
+        ("--format-regex", "python"),
+        ("--regex-variant", "python"),
+        ("--regex-variant", "default"),
+        ("--regex-variant", "default", "--format-regex", "python"),
+        ("--regex-variant", "python", "--format-regex", "default"),
+    ]
+)
+def regexopts(request):
+    return request.param
+
+
+def test_regex_format_good(run_line_simple, tmp_path, regexopts):
     schemafile = tmp_path / "schema.json"
     schemafile.write_text(json.dumps(FORMAT_SCHEMA))
 
     doc = tmp_path / "doc.json"
     doc.write_text(json.dumps(ALWAYS_PASSING_DOCUMENT))
 
-    cli_runner(["--format-regex", regexopt, "--schemafile", str(schemafile), str(doc)])
+    run_line_simple([*regexopts, "--schemafile", str(schemafile), str(doc)])
 
 
-@pytest.mark.parametrize("regexopt", ["disabled", "default", "python"])
-def test_regex_format_bad(cli_runner, tmp_path, regexopt):
+def test_regex_format_accepts_non_str_inputs(run_line_simple, tmp_path, regexopts):
+    # potentially confusing, but a format checker is allowed to check non-str instances
+    # validate the format checker behavior on such a case
+    schemafile = tmp_path / "schema.json"
+    schemafile.write_text(
+        json.dumps(
+            {
+                "$schema": "http://json-schema.org/draft-07/schema",
+                "properties": {"pattern": {"type": "integer", "format": "regex"}},
+            }
+        )
+    )
+    doc = tmp_path / "doc.json"
+    doc.write_text(json.dumps({"pattern": 0}))
+    run_line_simple([*regexopts, "--schemafile", str(schemafile), str(doc)])
+
+
+def test_regex_format_bad(run_line, tmp_path, regexopts):
     schemafile = tmp_path / "schema.json"
     schemafile.write_text(json.dumps(FORMAT_SCHEMA))
 
     doc = tmp_path / "doc.json"
     doc.write_text(json.dumps(ALWAYS_FAILING_DOCUMENT))
 
-    expect_ok = regexopt == "disabled"
+    expect_ok = regexopts == ("--disable-formats", "regex")
 
-    res = cli_runner(
-        ["--format-regex", regexopt, "--schemafile", str(schemafile), str(doc)],
-        expect_ok=expect_ok,
+    res = run_line(
+        [
+            "check-jsonschema",
+            *regexopts,
+            "--schemafile",
+            str(schemafile),
+            str(doc),
+        ],
     )
-    if not expect_ok:
+    if expect_ok:
+        assert res.exit_code == 0
+    else:
         assert res.exit_code == 1
+        assert "is not a 'regex'" in res.stdout
 
 
-@pytest.mark.parametrize("regexopt", ["disabled", "default", "python"])
-def test_regex_format_js_specific(cli_runner, tmp_path, regexopt):
+def test_regex_format_js_specific(run_line, tmp_path, regexopts):
     schemafile = tmp_path / "schema.json"
     schemafile.write_text(json.dumps(FORMAT_SCHEMA))
 
     doc = tmp_path / "doc.json"
     doc.write_text(json.dumps(JS_REGEX_DOCUMENT))
 
-    expect_ok = regexopt in ("disabled", "default")
-
-    res = cli_runner(
-        ["--format-regex", regexopt, "--schemafile", str(schemafile), str(doc)],
-        expect_ok=expect_ok,
+    expect_ok = regexopts[:2] not in (
+        ("--format-regex", "python"),
+        ("--regex-variant", "python"),
     )
-    if not expect_ok:
+
+    res = run_line(
+        [
+            "check-jsonschema",
+            *regexopts,
+            "--schemafile",
+            str(schemafile),
+            str(doc),
+        ],
+    )
+    if expect_ok:
+        assert res.exit_code == 0
+    else:
         assert res.exit_code == 1
+        assert "is not a 'regex'" in res.stdout
 
 
-def test_regex_format_in_renovate_config(cli_runner, tmp_path):
+def test_regex_format_in_renovate_config(run_line_simple, tmp_path):
     doc = tmp_path / "doc.json"
     doc.write_text(json.dumps(RENOVATE_DOCUMENT))
 
-    cli_runner(["--builtin-schema", "vendor.renovate", str(doc)])
+    run_line_simple(["--builtin-schema", "vendor.renovate", str(doc)])

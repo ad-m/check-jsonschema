@@ -1,87 +1,102 @@
-import sys
+from __future__ import annotations
+
+import pathlib
 import typing as t
 
+import click
 import jsonschema
+import referencing.exceptions
 
 from . import utils
-from .builtin_schemas import NoSuchSchemaError
 from .formats import FormatOptions
-from .loaders import InstanceLoader, SchemaLoader, SchemaParseError
+from .instance_loader import InstanceLoader
+from .parsers import ParseError
+from .regex_variants import RegexImplementation
+from .reporter import Reporter
+from .result import CheckResult
+from .schema_loader import SchemaLoaderBase, SchemaParseError, UnsupportedUrlScheme
 
 
-def json_path(err: jsonschema.ValidationError) -> str:
-    """
-    This method is a backport of the json_path attribute provided by
-    jsonschema.ValidationError for jsonschema v4.x
-
-    It is needed until python3.6 is no longer supported by check-jsonschema,
-    as jsonschema 4 dropped support for py36
-    """
-    path = "$"
-    for elem in err.absolute_path:
-        if isinstance(elem, int):
-            path += "[" + str(elem) + "]"
-        else:
-            path += "." + elem
-    return path
+class _Exit(Exception):
+    def __init__(self, code: int) -> None:
+        self.code = code
 
 
 class SchemaChecker:
     def __init__(
         self,
-        schema_loader: SchemaLoader,
+        schema_loader: SchemaLoaderBase,
         instance_loader: InstanceLoader,
+        reporter: Reporter,
         *,
-        format_opts: t.Optional[FormatOptions] = None,
+        format_opts: FormatOptions,
+        regex_impl: RegexImplementation,
         traceback_mode: str = "short",
-    ):
+        fill_defaults: bool = False,
+    ) -> None:
         self._schema_loader = schema_loader
         self._instance_loader = instance_loader
+        self._reporter = reporter
 
-        self._format_opts = format_opts if format_opts is not None else FormatOptions()
+        self._format_opts = format_opts
+        self._regex_impl = regex_impl
         self._traceback_mode = traceback_mode
+        self._fill_defaults = fill_defaults
 
-    def _fail(self, msg: str, err: t.Optional[Exception] = None) -> t.NoReturn:
-        print(msg, file=sys.stderr)
+    def _fail(self, msg: str, err: Exception | None = None) -> t.NoReturn:
+        click.echo(msg, err=True)
         if err is not None:
             utils.print_error(err, mode=self._traceback_mode)
-        sys.exit(1)
+        raise _Exit(1)
 
-    def get_validator(self):
+    def get_validator(
+        self, path: pathlib.Path | str, doc: dict[str, t.Any]
+    ) -> jsonschema.protocols.Validator:
         try:
-            return self._schema_loader.make_validator(self._format_opts)
-        except SchemaParseError:
-            self._fail("Error: schemafile could not be parsed as JSON")
+            return self._schema_loader.get_validator(
+                path, doc, self._format_opts, self._regex_impl, self._fill_defaults
+            )
+        except SchemaParseError as e:
+            self._fail("Error: schemafile could not be parsed as JSON", e)
         except jsonschema.SchemaError as e:
-            self._fail(f"Error: schemafile was not valid: {e}\n", e)
-        except NoSuchSchemaError as e:
-            self._fail("Error: builtin schema could not be loaded, no such schema\n", e)
+            self._fail("Error: schemafile was not valid\n", e)
+        except UnsupportedUrlScheme as e:
+            self._fail(f"Error: {e}\n", e)
         except Exception as e:
             self._fail("Error: Unexpected Error building schema validator", e)
 
-    def _build_error_map(self, validator):
-        errors = {}
-        for filename, doc in self._instance_loader.iter_files():
-            for err in validator.iter_errors(doc):
-                if filename not in errors:
-                    errors[filename] = []
-                errors[filename].append(err)
-        return errors
+    def _build_result(self) -> CheckResult:
+        result = CheckResult()
+        for path, data in self._instance_loader.iter_files():
+            if isinstance(data, ParseError):
+                result.record_parse_error(path, data)
+            else:
+                validator = self.get_validator(path, data)
+                passing = True
+                for err in validator.iter_errors(data):
+                    result.record_validation_error(path, err)
+                    passing = False
+                if passing:
+                    result.record_validation_success(path)
+        return result
 
-    def run(self):
-        validator = self.get_validator()
-
+    def _run(self) -> None:
         try:
-            errors = self._build_error_map(validator)
-        except jsonschema.RefResolutionError as err:
-            self._fail("Failure resolving $ref within schema\n", err)
+            result = self._build_result()
+        except (
+            referencing.exceptions.NoSuchResource,
+            referencing.exceptions.Unretrievable,
+            referencing.exceptions.Unresolvable,
+        ) as e:
+            self._fail("Failure resolving $ref within schema\n", e)
 
-        if errors:
-            print("Schema validation errors were encountered.")
-            for filename, file_errors in errors.items():
-                for err in file_errors:
-                    print(
-                        f"  \033[0;33m{filename}::{json_path(err)}: \033[0m{err.message}",
-                        file=sys.stderr,
-                    )
-            sys.exit(1)
+        self._reporter.report_result(result)
+        if not result.success:
+            raise _Exit(1)
+
+    def run(self) -> int:
+        try:
+            self._run()
+        except _Exit as e:
+            return e.code
+        return 0

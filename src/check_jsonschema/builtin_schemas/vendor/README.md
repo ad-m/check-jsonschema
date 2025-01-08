@@ -7,7 +7,7 @@ For the exact list of schemas here, see the repo root for hook config.
 
 Most of the schemas in this directory are provided by SchemaStore. They are
 therefore licensed under the SchemaStore license, included in this directory.
-Additional licenses are provided for other sources as noted below.
+Additional licenses can be found in [`licenses`](licenses).
 
 ### Azure Pipelines
 
@@ -23,3 +23,19 @@ license for readthedocs.org
 
 The Renovate schema is provided by Renovate and licensed under the license for
 renovatebot
+
+### GitLab
+
+The GitLab CI schema is provided by GitLab and licensed under the license for
+the public gitlab repo. In particular, it falls under the "MIT Expat" portion
+of the license for that repo.
+
+### Buildkite
+
+The Buildkite schema is provided by Buildkite and licensed under the license
+for their 'pipeline-schema' repo.
+
+### Taskfile
+
+The Taskfile schema is provided by Task and licensed under the license
+for their 'task' repo.

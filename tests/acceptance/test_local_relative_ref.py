@@ -56,13 +56,23 @@ def _prep_files(tmp_path, main_schema, other_schema_data, instance):
         ),
     ],
 )
+@pytest.mark.parametrize("with_file_scheme", [True, False])
 def test_local_ref_schema(
-    cli_runner, tmp_path, main_schema, other_schema_data, instance
+    run_line_simple,
+    tmp_path,
+    main_schema,
+    other_schema_data,
+    instance,
+    with_file_scheme,
 ):
     main_schemafile, doc = _prep_files(
         tmp_path, main_schema, other_schema_data, instance
     )
-    cli_runner(["--schemafile", str(main_schemafile), str(doc)])
+    if with_file_scheme:
+        schemafile = main_schemafile.resolve().as_uri()
+    else:
+        schemafile = str(main_schemafile)
+    run_line_simple(["--schemafile", schemafile, str(doc)])
 
 
 @pytest.mark.parametrize(
@@ -82,13 +92,24 @@ def test_local_ref_schema(
         ),
     ],
 )
+@pytest.mark.parametrize("with_file_scheme", [True, False])
 def test_local_ref_schema_failure_case(
-    cli_runner, tmp_path, main_schema, other_schema_data, instance, expect_err
+    run_line,
+    tmp_path,
+    main_schema,
+    other_schema_data,
+    instance,
+    expect_err,
+    with_file_scheme,
 ):
     main_schemafile, doc = _prep_files(
         tmp_path, main_schema, other_schema_data, instance
     )
-    res = cli_runner(["--schemafile", str(main_schemafile), str(doc)], expect_ok=False)
+    if with_file_scheme:
+        schemafile = main_schemafile.resolve().as_uri()
+    else:
+        schemafile = str(main_schemafile)
+    res = run_line(["check-jsonschema", "--schemafile", schemafile, str(doc)])
     assert res.exit_code == 1
     if expect_err is not None:
-        assert expect_err in res.stderr
+        assert expect_err in res.stdout

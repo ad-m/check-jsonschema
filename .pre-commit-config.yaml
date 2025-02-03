@@ -1,33 +1,50 @@
 repos:
 # dogfood
-- repo: https://github.com/sirosen/check-jsonschema
-  rev: 0.3.2
+- repo: https://github.com/python-jsonschema/check-jsonschema
+  rev: 0.31.1
   hooks:
+    - id: check-dependabot
     - id: check-github-workflows
+    - id: check-readthedocs
+    - id: check-metaschema
+      name: Validate Vendored Schemas
+      files: ^src/check_jsonschema/builtin_schemas/vendor/.*\.json$
+      exclude: ^src/check_jsonschema/builtin_schemas/vendor/azure-pipelines\.json$
+    - id: check-metaschema
+      name: Validate Vendored Schemas (nonunicode regexes)
+      files: ^src/check_jsonschema/builtin_schemas/vendor/azure-pipelines\.json$
+      args: ["--regex-variant", "nonunicode"]
+    - id: check-jsonschema
+      name: Validate Test Configs
+      args: ["--schemafile", "tests/example-files/config_schema.json"]
+      files: ^tests/example-files/.*/_config.yaml$
 - repo: https://github.com/pre-commit/pre-commit-hooks.git
-  rev: v3.4.0
+  rev: v5.0.0
   hooks:
     - id: check-merge-conflict
     - id: trailing-whitespace
-- repo: https://github.com/python/black
-  rev: 21.5b0
+- repo: https://github.com/psf/black-pre-commit-mirror
+  rev: 25.1.0
   hooks:
     - id: black
-      name: "Autoformat python files"
-      types: [python]
-      language_version: python3
-- repo: https://gitlab.com/pycqa/flake8
-  rev: 3.9.1
+- repo: https://github.com/PyCQA/flake8
+  rev: 7.1.1
   hooks:
     - id: flake8
-      name: "Lint python files"
-      types: [python]
-      language_version: python3
-      additional_dependencies: ['flake8-bugbear==20.11.1']
-- repo: https://github.com/timothycrosley/isort
-  rev: 5.8.0
+      additional_dependencies:
+        - 'flake8-bugbear==24.4.26'
+        - 'flake8-typing-as-t==0.0.3'
+        - 'flake8-comprehensions==3.15.0'
+- repo: https://github.com/sirosen/slyp
+  rev: 0.8.1
+  hooks:
+    - id: slyp
+- repo: https://github.com/PyCQA/isort
+  rev: 6.0.0
   hooks:
     - id: isort
-      name: "Sort python imports"
-      types: [python]
-      language_version: python3
+- repo: https://github.com/asottile/pyupgrade
+  rev: v3.19.1
+  hooks:
+    - id: pyupgrade
+      args: ["--py39-plus"]
